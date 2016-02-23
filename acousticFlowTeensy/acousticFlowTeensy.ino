@@ -4,15 +4,28 @@
 
 #define ARM_MATH_CM4
 #include <arm_math.h>
-#include <SPI.h>  // include the SPI library:
 #include <Adafruit_NeoPixel.h>
 
+
+// Processing States
+typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
+
+// current state-machine state
+procStates processingState = NOT_LISTENING;
 
 ////////////////////
 // Public Defines //
 ////////////////////
 
 #define ONE_MILLION 1000000
+#define HWSERIAL Serial1
+#define PIN_WAKE 5
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// Shared Defines: Keep this block consistent with corresponding block in Simblee code //
+/////////////////////////////////////////////////////////////////////////////////////////
+#define MAX_DATA_SIZE 10
+int testData[MAX_DATA_SIZE];
 
 ///////////////////////
 // FFT Configuration //
@@ -37,6 +50,7 @@ const int NEO_PIXEL_COUNT = 4;         // Number of neo pixels.  You should be a
 
 
 
+
 ////////////////////
 // INTERNAL STATE //
 ////////////////////
@@ -46,40 +60,41 @@ IntervalTimer samplingTimer, flowCheckTimer;
 float samples[FFT_SIZE * 2];
 float magnitudes[FFT_SIZE];
 int sampleCounter = 0;
+// TODO: remove this
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NEO_PIXEL_COUNT, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 char commandBuffer[MAX_CHARS];
 float frequencyWindow[NEO_PIXEL_COUNT + 1];
+// TODO: remove this
 float hues[NEO_PIXEL_COUNT];
 
+unsigned int currentValue;
 
 ///////////////////////////
 // MAIN SKETCH FUNCTIONS //
 ///////////////////////////
 
 void setup() {
-
-        Serial.begin(38400);    
+        Serial.begin(38400);  
+        HWSERIAL.begin(115200);
+        for(int i = 0; i < MAX_DATA_SIZE; i++) testData[i] = i;
         // Set up ADC and audio input.
         pinMode(AUDIO_INPUT_PIN, INPUT);                        
         analogReadResolution(ANALOG_READ_RESOLUTION);
         analogReadAveraging(ANALOG_READ_AVERAGING);
 
         // Turn on the power indicator LED.
+        pinMode(PIN_WAKE, OUTPUT);
         pinMode(POWER_LED_PIN, OUTPUT);
+        digitalWrite(PIN_WAKE, LOW);
         digitalWrite(POWER_LED_PIN, HIGH);
-
-        // TODO: Remove this
-        // Initialize neo pixel library and turn off the LEDs
-        pixels.begin();
-        pixels.show();
-
+        
         // Clear the input command buffer
         memset(commandBuffer, 0, sizeof(commandBuffer));
-        // TODO: Remove this
+
         // Initialize spectrum display
-        spectrumSetup();
+        //spectrumSetup();
         // Begin sampling audio
-        samplingBegin();
+        //samplingBegin();     
 
 }
 
@@ -90,30 +105,67 @@ void setup() {
 void loop() {
 
         // TODO: New guard
-        if (samplingIsDone()) {
-                // Run FFT on sample data. Create arm FFT instance, initialize it, run it, then get the magnitudes of the results.
-                arm_cfft_radix4_instance_f32 fft_inst;
-                arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
-                arm_cfft_radix4_f32(&fft_inst, samples);
-                arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
-                
-                /* Used to update the leds, don't need any more
-                if (LEDS_ENABLED == 1)
-                {
-                        // spectrumLoop(); 
-                }
-                */
-                // Restart Sampling
-                samplingBegin();                                
-        }
-        // Parse pending commands.
-        parserLoop();
+
+//        if (samplingIsDone()) {
+//                // Run FFT on sample data. Create arm FFT instance, initialize it, run it, then get the magnitudes of the results.
+//                arm_cfft_radix4_instance_f32 fft_inst;
+//                arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
+//                arm_cfft_radix4_f32(&fft_inst, samples);
+//                arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
+//                
+//                /* Used to update the leds, don't need any more
+//                if (LEDS_ENABLED == 1)
+//                {
+//                        // spectrumLoop(); 
+//                }
+//                */
+//                // Restart Sampling
+//                samplingBegin();                                
+//        }
+//        // Parse pending commands.
+//        parserLoop();
+
+  char ack = 0;
+  initCommunication(MAX_DATA_SIZE);
+  sendPayload(testData, MAX_DATA_SIZE);
+  while (Serial.available ()) ack = Serial.read();
+  Serial.println(ack);
+  delay(1000);
 }
 
 //////////////
 // End loop //
 //////////////
 
+///////////////////
+// UART FUNCTIONS //
+///////////////////
+
+void initCommunication(int payloadLength){
+  digitalWrite(PIN_WAKE, HIGH);
+  HWSERIAL.print((uint8_t)payloadLength);
+}
+
+void sendPayload(int payload[], int payloadLength){
+  for(int i = 0; i < payloadLength; i++){
+  Serial.print("R");
+  Serial.print(payload[i]&0xF000);
+  Serial.print(payload[i]&0x0F00);
+  Serial.print(payload[i]&0x00F0);
+  Serial.print(payload[i]&0x000F);
+  Serial.print("A");
+  Serial.print(payload[i]&0xF000);
+  Serial.print(payload[i]&0x0F00);
+  Serial.print(payload[i]&0x00F0);
+  Serial.print(payload[i]&0x000F);
+  Serial.print("S");
+  Serial.print(payload[i]&0xF000);
+  Serial.print(payload[i]&0x0F00);
+  Serial.print(payload[i]&0x00F0);
+  Serial.print(payload[i]&0x000F);  
+  } 
+  digitalWrite(PIN_WAKE, LOW);  
+}
 
 ///////////////////////
 // UTILITY FUNCTIONS //
