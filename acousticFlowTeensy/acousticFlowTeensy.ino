@@ -11,7 +11,8 @@
 typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
 // current state-machine state
 procStates processingState = NOT_LISTENING;
-// Transmit Order
+// Transmit Order: rate, avgRate, timeStamp, where 'timeStamp' is time since flow began in ms.
+// TODO: don't really need to send avg rate...
 char transmitOrder[] = {'R', 'A', 'T'};
 
 ////////////////////
