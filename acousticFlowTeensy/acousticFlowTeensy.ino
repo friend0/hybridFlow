@@ -4,6 +4,12 @@
 
 #define ARM_MATH_CM4
 #include <arm_math.h>
+// set 48kHz sampling rate
+#define CLOCK_TYPE                  (I2S_CLOCK_48K_INTERNAL)
+#include <Wire.h>
+// I2S digital audio 
+#include <i2s.h>
+// TODO: remove
 #include <Adafruit_NeoPixel.h>
 
 
@@ -11,8 +17,7 @@
 typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
 // current state-machine state
 procStates processingState = NOT_LISTENING;
-// Transmit Order: rate, avgRate, timeStamp, where 'timeStamp' is time since flow began in ms.
-// TODO: don't really need to send avg rate...
+// Transmit Order
 char transmitOrder[] = {'R', 'A', 'T'};
 
 ////////////////////
@@ -64,6 +69,8 @@ float hues[NEO_PIXEL_COUNT];
 
 unsigned int currentValue;
 int sampleCounter = 0;
+int sampleCounterOneShot = 0;
+
 // TODO: remove this
 char commandBuffer[MAX_CHARS];
 
@@ -74,6 +81,7 @@ char commandBuffer[MAX_CHARS];
 float rate;
 float avgRate;
 float timeStamp;
+
 
 /////////////////////
 // SETUP FUNCTIONS //
@@ -106,9 +114,14 @@ void setup() {
         
         // Clear the input command buffer
         memset(commandBuffer, 0, sizeof(commandBuffer));
+        
+        // Uncomment this to activate I2S for MEMS mic on PCB
+        // I2SRx0.begin( CLOCK_TYPE, i2s_rx_callback );
+        // I2SRx0.start();
 
         // Initialize spectrum display
         //spectrumSetup();
+        
         // Begin sampling audio
         //samplingBegin();     
 
@@ -178,61 +191,47 @@ void sendPayload(float payload[], int payloadLength, char transmitOrder[]){
   digitalWrite(PIN_WAKE, LOW);  
 }
 
-///////////////////////
-// UTILITY FUNCTIONS //
-///////////////////////
+///////////////////
+// I2S FUNCTIONS //
+///////////////////
 
-// Compute the average magnitude of a target frequency window vs. all other frequencies.
-void windowMean(float* magnitudes, int lowBin, int highBin, float* windowMean, float* otherMean) {
-        *windowMean = 0;
-        *otherMean = 0;
-        // Notice the first magnitude bin is skipped because it represents the average power of the signal.       
-        for (int i = 1; i < FFT_SIZE / 2; ++i) {
-                if (i >= lowBin && i <= highBin) {
-                        *windowMean += magnitudes[i];
-                }
-                else {
-                        *otherMean += magnitudes[i];
-                }
-        }
-        *windowMean /= (highBin - lowBin) + 1;
-        *otherMean /= (FFT_SIZE / 2 - (highBin - lowBin));
+/**
+ * Extract the 24bit ICS-43432 audio data from 32bit sample
+ */
+void extractdata_inplace(int32_t  *pBuf) {
+  // set highest bit to zero, then bitshift right 7 times
+  // do not omit the first part (!)
+  pBuf[0] = (pBuf[0] & 0x7fffffff) >>7;
 }
 
-// Convert a frequency to the appropriate FFT bin it will fall within.
-int frequencyToBin(float frequency) {
-        float binFrequency = float(SAMPLE_RATE) / float(FFT_SIZE);
-        return int(frequency / binFrequency);
+/**
+ * Direct I2S Receive; we get callback to read 2 words from the FIFO.
+ */
+void i2s_rx_callback( int32_t *pBuf )
+{
+  // perform the data extraction for both channel sides
+  extractdata_inplace(&pBuf[0]);
+  extractdata_inplace(&pBuf[1]);
+
+  // this does not buffer any data, but directly pushs it to USB
+  // use a fast (!) program to dump and analyze this.
+  // Minicom and Realterm are too slow.
+  for(int i=0; i<2; i++) {
+    /* 32 bit variant
+    bytes[0] = (pBuf[i] >> 24) & 0xFF;
+    bytes[1] = (pBuf[i] >> 16) & 0xFF;
+    bytes[2] = (pBuf[i] >> 8) & 0xFF;
+    bytes[3] = pBuf[i] & 0xFF;*/
+    
+    // 24 bit variant
+    bytes[0] = (pBuf[i] >> 16) & 0xFF;
+    bytes[1] = (pBuf[i] >> 8) & 0xFF;
+    bytes[2] = pBuf[i] & 0xFF;
+    
+    // send the data over USB
+    Serial.write(bytes,3);
+  }  
 }
-
-////////////////////////
-// SAMPLING FUNCTIONS //
-////////////////////////
-
-void samplingCallback() {
-        // Read from the ADC and store the sample data
-        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
-        // Complex FFT functions require a coefficient for the imaginary part of the input.
-        // Since we only have real data, set this coefficient to zero.
-        samples[sampleCounter + 1] = 0.0;
-        // Update sample buffer position and stop after the buffer is filled
-        sampleCounter += 2;
-        if (sampleCounter >= FFT_SIZE * 2) {
-                samplingTimer.end();
-        }
-}
-
-void samplingBegin() {
-        // Reset sample buffer position and start callback at defined sampling rate.
-        sampleCounter = 0;
-        // Start the interval timer with a period inverse to the sampling rate. Scale by 1e6 because arg is in uSec
-        samplingTimer.begin(samplingCallback, 1000000 / SAMPLE_RATE);
-}
-
-boolean samplingIsDone() {
-        return sampleCounter >= FFT_SIZE * 2;
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // COMMAND PARSING FUNCTIONS
@@ -355,9 +354,88 @@ uint32_t pixelHSVtoRGBColor(float hue, float saturation, float value) {
 }
 
 
-////////////////////////////////
-// SPECTRUM DISPLAY FUNCTIONS //
-////////////////////////////////
+////////////////////////
+// SAMPLING FUNCTIONS //
+////////////////////////
+
+// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
+void samplingCallback() {
+        // Read from the ADC and store the sample data
+        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
+        sampleCounter++;
+        // Set complex FFT coefficients to zero.        
+        samples[sampleCounter] = 0.0;
+        sampleCounter ++;
+        if (sampleCounter >= FFT_SIZE * 2) samplingTimer.end();        
+}
+
+/**
+ * [samplingBegin description]
+ */
+void samplingBegin() {
+        // Reset sample buffer position and start callback at defined sampling rate.
+        sampleCounter = 0;
+        // Start the interval timer with a period inverse to the sampling rate. Scale by 1e6 because arg is in uSec
+        samplingTimer.begin(samplingCallback, 1000000 / SAMPLE_RATE);
+}
+
+/**
+ * Check if there are enough new samples to do the FFT.
+ * @return {[type]} boolean
+ */
+boolean samplingIsDone() {
+        return sampleCounter >= FFT_SIZE * 2;
+}
+
+/////////////////////////
+// SPECTRUM  FUNCTIONS //
+/////////////////////////
+
+/**
+ * Take enough samples for FFT_SIZE, then perform a single FFT. Blocking Code. Meant to be called in-between sleep
+ * cycles to detect flow-on events.
+ * @return {[type]} [description]
+ */
+void fftOneShot(){
+        samplingBegin(); 
+        while(!samplingIsDone()); // :smiling_imp:
+        arm_cfft_radix4_instance_f32 fft_inst;
+        arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
+        arm_cfft_radix4_f32(&fft_inst, samples);
+        arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
+}
+
+/**
+ * Perform logic to detect flow events based on latest FFT data, configuration data.
+ * @return {[type]} [description]
+ */
+void flowCheck(){
+
+}
+
+
+// Compute the average magnitude of a target frequency window vs. all other frequencies.
+void windowMean(float* magnitudes, int lowBin, int highBin, float* windowMean, float* otherMean) {
+        *windowMean = 0;
+        *otherMean = 0;
+        // Notice the first magnitude bin is skipped because it represents the average power of the signal.       
+        for (int i = 1; i < FFT_SIZE / 2; ++i) {
+                if (i >= lowBin && i <= highBin) {
+                        *windowMean += magnitudes[i];
+                }
+                else {
+                        *otherMean += magnitudes[i];
+                }
+        }
+        *windowMean /= (highBin - lowBin) + 1;
+        *otherMean /= (FFT_SIZE / 2 - (highBin - lowBin));
+}
+
+// Convert a frequency to the appropriate FFT bin it will fall within.
+int frequencyToBin(float frequency) {
+        float binFrequency = float(SAMPLE_RATE) / float(FFT_SIZE);
+        return int(frequency / binFrequency);
+}
 
 // TODO: repurpose this function
 void spectrumSetup() {
@@ -395,3 +473,5 @@ void spectrumLoop() {
         }
         pixels.show();
 }
+
+
