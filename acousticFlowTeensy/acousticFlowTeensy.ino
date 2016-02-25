@@ -9,23 +9,24 @@
 
 // Processing States
 typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
-
 // current state-machine state
 procStates processingState = NOT_LISTENING;
+// Transmit Order
+char transmitOrder[] = {'R', 'A', 'T'};
 
 ////////////////////
 // Public Defines //
 ////////////////////
 
 #define ONE_MILLION 1000000
-#define HWSERIAL Serial1
+#define HWSERIAL Serial3
 #define PIN_WAKE 5
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Shared Defines: Keep this block consistent with corresponding block in Simblee code //
 /////////////////////////////////////////////////////////////////////////////////////////
-#define MAX_DATA_SIZE 10
-int testData[MAX_DATA_SIZE];
+#define MAX_DATA_SIZE 3
+float payload[MAX_DATA_SIZE];
 
 ///////////////////////
 // FFT Configuration //
@@ -46,43 +47,57 @@ const int MAX_CHARS = 65;              // Max size of the input command buffer
 // @TODO remove refs to the neopixel
 const int NEO_PIXEL_PIN = 3;           // Output pin for neo pixels.
 const int NEO_PIXEL_COUNT = 4;         // Number of neo pixels.  You should be able to increase this without
-// any other changes to the program.
-
-
-
 
 ////////////////////
 // INTERNAL STATE //
 ////////////////////
 
-
+Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NEO_PIXEL_COUNT, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 IntervalTimer samplingTimer, flowCheckTimer;
+
 float samples[FFT_SIZE * 2];
 float magnitudes[FFT_SIZE];
-int sampleCounter = 0;
-// TODO: remove this
-Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NEO_PIXEL_COUNT, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
-char commandBuffer[MAX_CHARS];
+// TODO: update this
 float frequencyWindow[NEO_PIXEL_COUNT + 1];
-// TODO: remove this
 float hues[NEO_PIXEL_COUNT];
 
 unsigned int currentValue;
+int sampleCounter = 0;
+// TODO: remove this
+char commandBuffer[MAX_CHARS];
 
-///////////////////////////
-// MAIN SKETCH FUNCTIONS //
-///////////////////////////
+////////////////////
+// External State //
+////////////////////
+
+float rate;
+float avgRate;
+float timeStamp;
+
+/////////////////////
+// SETUP FUNCTIONS //
+/////////////////////
 
 void setup() {
+
+        // Var Inits
+        rate = 1.0;
+        avgRate = 2.0;
+        timeStamp = 1.78;
+        
+        // UART
         Serial.begin(38400);  
         HWSERIAL.begin(115200);
-        for(int i = 0; i < MAX_DATA_SIZE; i++) testData[i] = i;
-        // Set up ADC and audio input.
+
+        // Init test-data
+        for(int i = 0; i < MAX_DATA_SIZE; i++) payload[i] = i;
+        
+        // ADC and Audio Init
         pinMode(AUDIO_INPUT_PIN, INPUT);                        
         analogReadResolution(ANALOG_READ_RESOLUTION);
         analogReadAveraging(ANALOG_READ_AVERAGING);
 
-        // Turn on the power indicator LED.
+        // GPIO Inits
         pinMode(PIN_WAKE, OUTPUT);
         pinMode(POWER_LED_PIN, OUTPUT);
         digitalWrite(PIN_WAKE, LOW);
@@ -127,9 +142,14 @@ void loop() {
 
   char ack = 0;
   initCommunication(MAX_DATA_SIZE);
-  sendPayload(testData, MAX_DATA_SIZE);
-  while (Serial.available ()) ack = Serial.read();
-  Serial.println(ack);
+  float payload[3] = {rate, avgRate, timeStamp};
+  sendPayload(payload, MAX_DATA_SIZE, transmitOrder);
+  
+  while (HWSERIAL.available ()){
+    ack = HWSERIAL.read();
+    Serial.println((char) ack);
+  }
+  
   delay(1000);
 }
 
@@ -137,33 +157,23 @@ void loop() {
 // End loop //
 //////////////
 
-///////////////////
-// UART FUNCTIONS //
-///////////////////
+////////////////////
+// UART Functions //
+////////////////////
 
 void initCommunication(int payloadLength){
   digitalWrite(PIN_WAKE, HIGH);
   HWSERIAL.print((uint8_t)payloadLength);
 }
 
-void sendPayload(int payload[], int payloadLength){
+void sendPayload(float payload[], int payloadLength, char transmitOrder[]){
+
   for(int i = 0; i < payloadLength; i++){
-  Serial.print("R");
-  Serial.print(payload[i]&0xF000);
-  Serial.print(payload[i]&0x0F00);
-  Serial.print(payload[i]&0x00F0);
-  Serial.print(payload[i]&0x000F);
-  Serial.print("A");
-  Serial.print(payload[i]&0xF000);
-  Serial.print(payload[i]&0x0F00);
-  Serial.print(payload[i]&0x00F0);
-  Serial.print(payload[i]&0x000F);
-  Serial.print("S");
-  Serial.print(payload[i]&0xF000);
-  Serial.print(payload[i]&0x0F00);
-  Serial.print(payload[i]&0x00F0);
-  Serial.print(payload[i]&0x000F);  
-  } 
+    HWSERIAL.print(transmitOrder[i]);
+    for(int j = 0; j < 4; j++){
+      HWSERIAL.print( (int) payload[i] & (0xF000 >> (4*j)));
+    }
+  }
   digitalWrite(PIN_WAKE, LOW);  
 }
 
