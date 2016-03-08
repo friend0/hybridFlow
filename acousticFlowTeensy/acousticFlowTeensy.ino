@@ -1,6 +1,6 @@
-/**
- * Acoustic Flow Sensing on the Teensy 3.2
- */
+/////////////////////////////////////////////
+// Acoustic Flow Sensing on the Teensy 3.2 //
+/////////////////////////////////////////////
 
 #define ARM_MATH_CM4
 #include <arm_math.h>
@@ -14,8 +14,8 @@
 typedef union floatBytes floatBytes;
 
 union floatBytes {
-   float asFloat;
-   byte asBytes[4];
+        float asFloat;
+        byte asBytes[4];
 } data;
 
 #define ONE_MILLION 1000000
@@ -27,7 +27,7 @@ static float const POLLING_RATE_HZ = 0.2;
 //////////////////////////
 
 /**
-Definte UART packet structure: keep this consitent between Simblee and Teensy code 
+Definte UART packet structure: keep this consitent between Simblee and Teensy code
 **/
 // Setup Bit-Bang UART FSM States
 typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
@@ -70,7 +70,7 @@ const int MAX_CHARS = 65;              // Max size of the input command buffer
 
 // TODO: update logic and reasoning here when writing spectrum analysis functions
 static int const CHARACTERISTIC_FREQUENCIES = 1;      // TODO: CHARACTERISTIC_FREQUENCIES should be determined by number of frequencies in characteristic array of freqs
-                                       // 1 characteristic frequency is the defualt
+// 1 characteristic frequency is the defualt
 float frequencyWindow[CHARACTERISTIC_FREQUENCIES + 1];
 
 //////////////////////////////
@@ -115,10 +115,10 @@ IntervalTimer flowCheckTimer;       // Use this to wake the Teensy and poll the 
 
 void setup() {
 
-        /** 
-        Setup FSM for the AquaStat 
-        **/        
-        teensyFSMCtor(&AquaStat);        
+        /**
+        Setup FSM for the AquaStat
+        **/
+        teensyFSMCtor(&AquaStat);
         FsmInit((Fsm *)&AquaStat, 0);
 
 
@@ -127,16 +127,16 @@ void setup() {
         avgRate = 2.0;
         timeStamp = 1.78;
 
-              
+
         // UART for Simblee Comm
-        Serial.begin(38400);  
+        Serial.begin(38400);
         HWSERIAL.begin(115200);
 
         // Init test-data
-        for(int i = 0; i < MAX_DATA_SIZE; i++) payload[i] = i;
-        
+        for (int i = 0; i < MAX_DATA_SIZE; i++) payload[i] = i;
+
         // ADC and Audio Init
-        pinMode(AUDIO_INPUT_PIN, INPUT);                        
+        pinMode(AUDIO_INPUT_PIN, INPUT);
         analogReadResolution(ANALOG_READ_RESOLUTION);
         analogReadAveraging(ANALOG_READ_AVERAGING);
 
@@ -147,13 +147,13 @@ void setup() {
         digitalWrite(POWER_LED_PIN, HIGH);
 
         // Clear the input command buffer
-        memset(commandBuffer, 0, sizeof(commandBuffer));        
+        memset(commandBuffer, 0, sizeof(commandBuffer));
 
         // Initialize spectrum display
         //spectrumSetup();
-        
+
         // Begin sampling audio
-        //samplingBegin();     
+        //samplingBegin();
 
 }
 
@@ -163,42 +163,20 @@ void setup() {
 
 void loop() {
 
-
-if(currentEvent != lastEvent){
-
-    updateFSM(teensyFSM, currentEvent)
-    lastEvent = currentEvent;
-}
-//        if (samplingIsDone()) {
-//                // Run FFT on sample data. Create arm FFT instance, initialize it, run it, then get the magnitudes of the results.
-//                arm_cfft_radix4_instance_f32 fft_inst;
-//                arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
-//                arm_cfft_radix4_f32(&fft_inst, samples);
-//                arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
-//                
-//                /* Used to update the leds, don't need any more
-//                if (LEDS_ENABLED == 1)
-//                {
-//                        // spectrumLoop(); 
-//                }
-//                */
-//                // Restart Sampling
-//                samplingBegin();                                
-//        }
 //        // Parse pending commands.
 //        parserLoop();
 
-  char ack = 0;
-  initCommunication(MAX_DATA_SIZE);
-  float payload[3] = {rate, avgRate, timeStamp};
-  sendPayload(payload, MAX_DATA_SIZE, transmitOrder);
-  
-  while (HWSERIAL.available ()){
-    ack = HWSERIAL.read();
-    Serial.println((char) ack);
-  }
-  
-  delay(1000);
+        char ack = 0;
+        initCommunication(MAX_DATA_SIZE);
+        float payload[3] = {rate, avgRate, timeStamp};
+        sendPayload(payload, MAX_DATA_SIZE, transmitOrder);
+
+        while (HWSERIAL.available ()) {
+                ack = HWSERIAL.read();
+                Serial.println((char) ack);
+        }
+
+        delay(1000);
 }
 
 //////////////
@@ -209,37 +187,25 @@ if(currentEvent != lastEvent){
 // UART Functions //
 ////////////////////
 
-void initCommunication(int payloadLength){
-  digitalWrite(PIN_WAKE, HIGH);
-  HWSERIAL.print((uint8_t)payloadLength);
+void initCommunication(int payloadLength) {
+        digitalWrite(PIN_WAKE, HIGH);
+        HWSERIAL.print((uint8_t)payloadLength);
 }
 
-void sendPayload(float payload[], int payloadLength, char transmitOrder[]){
+void sendPayload(float payload[], int payloadLength, char transmitOrder[]) {
 
-  for(int i = 0; i < payloadLength; i++){
-    HWSERIAL.print(transmitOrder[i]);
-    for(int j = 0; j < 4; j++){
-      HWSERIAL.print( (int) payload[i] & (0xF000 >> (4*j)));
-    }
-  }
-  digitalWrite(PIN_WAKE, LOW);  
+        for (int i = 0; i < payloadLength; i++) {
+                HWSERIAL.print(transmitOrder[i]);
+                for (int j = 0; j < 4; j++) {
+                        HWSERIAL.print( (int) payload[i] & (0xF000 >> (4 * j)));
+                }
+        }
+        digitalWrite(PIN_WAKE, LOW);
 }
 
-
-////////////////////////
-// SAMPLING FUNCTIONS //
-////////////////////////
-
-// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
-void samplingCallback() {
-        // Read from the ADC and store the sample data
-        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
-        sampleCounter++;
-        // Set complex FFT coefficients to zero.        
-        samples[sampleCounter] = 0.0;
-        sampleCounter ++;
-        if (sampleCounter >= FFT_SIZE * 2) samplingTimer.end();        
-}
+//////////////////////////////////////
+// SPECTRUM  AND SAMPLING FUNCTIONS //
+//////////////////////////////////////
 
 /**
  * [samplingBegin description]
@@ -251,6 +217,17 @@ void samplingBegin() {
         samplingTimer.begin(samplingCallback, 1000000 / SAMPLE_RATE);
 }
 
+// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
+void samplingCallback() {
+        // Read from the ADC and store the sample data
+        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
+        sampleCounter++;
+        // Set complex FFT coefficients to zero.
+        samples[sampleCounter] = 0.0;
+        sampleCounter ++;
+        if (sampleCounter >= FFT_SIZE * 2) samplingTimer.end();
+}
+
 /**
  * Check if there are enough new samples to do the FFT.
  * @return {[type]} boolean
@@ -259,20 +236,14 @@ boolean samplingIsDone() {
         return sampleCounter >= FFT_SIZE * 2;
 }
 
-/////////////////////////
-// SPECTRUM  FUNCTIONS //
-/////////////////////////
-
-// Note that the Radix4 FFT is optimized for FFTs with lengths a power of 4
-
 /**
  * Take enough samples for FFT_SIZE, then perform a single FFT. Blocking Code. Meant to be called in-between sleep
  * cycles to detect flow-on events.
  * @return {[type]} [description]
  */
-void fftOneShot(){
-        samplingBegin(); 
-        while(!samplingIsDone()); // :smiling_imp:
+void fftOneShot() {
+        samplingBegin();
+        while (!samplingIsDone()); // :smiling_imp:
         arm_cfft_radix4_instance_f32 fft_inst;
         arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
         arm_cfft_radix4_f32(&fft_inst, samples);
@@ -280,35 +251,28 @@ void fftOneShot(){
 }
 
 // TODO: implement a function that does a specified number of FFTs in a row
-void fftContinuous(int iterations){
-    for(int i = 0; i < iterations; i++){
-        samplingBegin(); 
-        while(!samplingIsDone()); // :smiling_imp:
-        arm_cfft_radix4_instance_f32 fft_inst;
-        arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
-        arm_cfft_radix4_f32(&fft_inst, samples);
-        arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
-        // TODO: will need to do something with the values here, else it might be silly to do this.
-    }
+void fftContinuous(int iterations) {
+        for (int i = 0; i < iterations; i++) {
+                samplingBegin();
+                while (!samplingIsDone()); // :smiling_imp:
+                arm_cfft_radix4_instance_f32 fft_inst;
+                arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
+                arm_cfft_radix4_f32(&fft_inst, samples);
+                arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
+                // TODO: will need to do something with the values here, else it might be silly to do this.
+        }
 }
 
 /**
  * Perform logic to detect flow events based on latest FFT data, configuration data.
  * @return {[type]} [description]
  */
-void flowCheck(){
+void flowCheck(teensyFSMEvent *currentEvent) {
+        // if flow detected:
+        //  currentEvent -> super_.signal = FLOW_DETECTED;
+        // else
+        // currentEvent -> super_.signal = NO_EVENT;
 
-}
-
-// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
-void pollingCallback() {
-        // Read from the ADC and store the sample data
-        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
-        sampleCounter++;
-        // Set complex FFT coefficients to zero.        
-        samples[sampleCounter] = 0.0;
-        sampleCounter ++;
-        if (sampleCounter >= FFT_SIZE * 2) samplingTimer.end();        
 }
 
 /**
@@ -321,12 +285,21 @@ void pollingBegin() {
         samplingTimer.begin(samplingCallback, 1000000 / POLLING_RATE_HZ);
 }
 
+// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
+void pollingCallback() {
+        fftOneShot();
+        flowCheck(&currentEvent);        
+        if (currentEvent.super_.signal != lastEvent.super_.signal) {
+                updateFSM(&AquaStat, &currentEvent);
+                lastEvent = currentEvent;
+        }
+}
 
 // Compute the average magnitude of a target frequency window vs. all other frequencies.
 void windowMean(float* magnitudes, int lowBin, int highBin, float* windowMean, float* otherMean) {
         *windowMean = 0;
         *otherMean = 0;
-        // Notice the first magnitude bin is skipped because it represents the average power of the signal.       
+        // Notice the first magnitude bin is skipped because it represents the average power of the signal.
         for (int i = 1; i < FFT_SIZE / 2; ++i) {
                 if (i >= lowBin && i <= highBin) {
                         *windowMean += magnitudes[i];
@@ -361,7 +334,7 @@ void spectrumSetup() {
 }
 
 /**
- * This function is used to iterate over characteristic frequencies for signal of interest, 
+ * This function is used to iterate over characteristic frequencies for signal of interest,
  * and log their amplitudes.
  * @return {[type]} [description]
  */
@@ -378,7 +351,7 @@ void spectrumLoop() {
                 // Scale the intensity and clamp between 0 and 1.0.
                 intensity -= SPECTRUM_MIN_DB;
                 //Saturate intensity at 0, i.e. restrict to positive intensity
-                intensity = intensity < 0.0 ? 0.0 : intensity;  
+                intensity = intensity < 0.0 ? 0.0 : intensity;
                 intensity /= (SPECTRUM_MAX_DB - SPECTRUM_MIN_DB);
                 intensity = intensity > 1.0 ? 1.0 : intensity;
 

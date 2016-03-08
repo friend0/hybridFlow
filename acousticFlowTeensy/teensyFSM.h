@@ -74,30 +74,30 @@ void teensyFSMCtor(teensyFSM *self);
 * @param self self reference to teensyFSM
 * @param e    event
 */
-void initial(teensyFSM *self, Event const *e);
+void initial(teensyFSM *self, Event *e);
 
 /**
 * Implements the default transition
 * @param self self reference to teensyFSM
 * @param e    event
 */
-void default(teensyFSM *self, Event const *e);
+void defaultState(teensyFSM *self, Event *e);
 
-void sleeping(teensyFSM *self, Event const *e);
+void sleeping(teensyFSM *self, Event *e);
 
-void polling(teensyFSM *self, Event const *e);
+void polling(teensyFSM *self, Event *e);
 
-void sampling(teensyFSM *self, Event const *e);
+void sampling(teensyFSM *self, Event *e);
 
-void fft(teensyFSM *self, Event const *e);
+void fft(teensyFSM *self, Event *e);
 
-void extracting(teensyFSM *self, Event const *e);
+void extracting(teensyFSM *self, Event *e);
 
-void estimating(teensyFSM *self, Event const *e);
+void estimating(teensyFSM *self, Event *e);
 
-void transmitting(teensyFSM *self, Event const *e);
+void transmitting(teensyFSM *self, Event *e);
 
-void testing(teensyFSM *self, Event const *e);
+void testing(teensyFSM *self, Event *e);
 
 char updateFSM(teensyFSM *self, teensyFSMEvent *e);
 

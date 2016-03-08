@@ -27,21 +27,20 @@ States
 ****************************************************************/
 void teensyFSMCtor(teensyFSM *self)
 {
-    _FsmCtor_(&self->super_, &teensyFSM_initial);
+    _FsmCtor_(&self->super_, &initial);
 }
 
-void initial(teensyFSM *self, Event const *e)
+void initial(teensyFSM *self, Event *e)
 {
-    /* ... initialization of teensyFSM attributes */
-    // Serial.println("teensyFSM initialized");
-    _FsmTran_((Fsm *)self, &teensyFSM_default);
+    //We can use this initial state to do some setup in the beginning. We occupy this state for only one cycle, then transition into the 
+    // rest of the machine. 
+    _FsmTran_((Fsm *)self, &defaultState);
 }
 
 // Dont really need a default state
-void default(teensyFSM *self, Event const *e){
+void defaultState(teensyFSM *self, Event *e){
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -76,17 +75,15 @@ void default(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void sleeping(teensyFSM *self, Event const *e){
+void sleeping(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -121,17 +118,15 @@ void sleeping(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void polling(teensyFSM *self, Event const *e){
+void polling(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -166,17 +161,15 @@ void polling(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void sampling(teensyFSM *self, Event const *e){
+void sampling(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -211,17 +204,15 @@ void sampling(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void fft(teensyFSM *self, Event const *e){
+void fft(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -256,17 +247,15 @@ void fft(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void extracting(teensyFSM *self, Event const *e){
+void extracting(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -301,17 +290,15 @@ void extracting(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void estimating(teensyFSM *self, Event const *e){
+void estimating(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -346,17 +333,15 @@ void estimating(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void transmitting(teensyFSM *self, Event const *e){
+void transmitting(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     }
 
@@ -391,17 +376,16 @@ void transmitting(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
 
 }
 
-void testing(teensyFSM *self, Event const *e){
+void testing(teensyFSM *self, Event *e){
 
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
+    //    printf("EXECUTE ENTER TRANSITION!\n");
         e->transition = false;
     }
 
@@ -436,7 +420,7 @@ void testing(teensyFSM *self, Event const *e){
     }
 
     if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
+        //printf("EXECUTE EXIT TRANSITION!\n");
         e->transition = false;
     } 
 
@@ -469,7 +453,7 @@ char updateFSM(teensyFSM *self, teensyFSMEvent *e)
     void *    funptr = (void*) self->super_.state__;
     //void    *funptr = self->super_.state__;
 
-    if(funptr == &default){
+    if(funptr == &defaultState){
         switch (e->code)                  //This switch uses the data attribute 'code' of the teensyFSM Event
         {
             //case '.' : return -1;          // terminate the test
