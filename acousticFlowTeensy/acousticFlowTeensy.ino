@@ -5,14 +5,11 @@
 #define ARM_MATH_CM4
 #include <arm_math.h>
 #include "teensyFSM.h"
-
+#include <TimerOne.h>
 
 ////////////////////
 // Public Defines //
 ////////////////////
-
-#define ONE_MILLION 1000000
-#define HWSERIAL Serial3
 
 typedef union floatBytes floatBytes;
 
@@ -20,6 +17,10 @@ union floatBytes {
    float asFloat;
    byte asBytes[4];
 } data;
+
+#define ONE_MILLION 1000000
+#define HWSERIAL Serial3
+static float const POLLING_RATE_HZ = 0.2;
 
 //////////////////////////
 // State Machine Setups //
@@ -48,7 +49,7 @@ float payload[MAX_DATA_SIZE];
 
 const int AUDIO_INPUT_PIN = 20;        // Input ADC pin for audio data.
 const int POWER_LED_PIN = 13;          // Output pin for power LED (pin 13 to use Teensy 3.0's onboard LED).
-const int  PIN_WAKE  = 9;
+const int PIN_WAKE  = 9;
 
 ///////////////////////
 // FFT Configuration //
@@ -90,8 +91,20 @@ int sampleCounterOneShot = 0;
 
 char commandBuffer[MAX_CHARS];
 
-// Timers
 
+/////////
+// FSM //
+/////////
+
+teensyFSM AquaStat;
+teensyFSMEvent currentEvent;
+teensyFSMEvent lastEvent;
+
+////////////
+// Timers //
+////////////
+
+//TODO: may need one more timer to keep track of water flow from start to finish, i.e. how long water has been running.
 IntervalTimer samplingTimer;        // Use this time to set the sampling rate
 IntervalTimer flowCheckTimer;       // Use this to wake the Teensy and poll the sensor to do flow detection
 
@@ -99,7 +112,6 @@ IntervalTimer flowCheckTimer;       // Use this to wake the Teensy and poll the 
 // SETUP FUNCTIONS //
 /////////////////////
 
-teensyFSM AquaStat;
 
 void setup() {
 
@@ -151,8 +163,12 @@ void setup() {
 
 void loop() {
 
-        // TODO: New guard
 
+if(currentEvent != lastEvent){
+
+    updateFSM(teensyFSM, currentEvent)
+    lastEvent = currentEvent;
+}
 //        if (samplingIsDone()) {
 //                // Run FFT on sample data. Create arm FFT instance, initialize it, run it, then get the magnitudes of the results.
 //                arm_cfft_radix4_instance_f32 fft_inst;
@@ -207,6 +223,167 @@ void sendPayload(float payload[], int payloadLength, char transmitOrder[]){
     }
   }
   digitalWrite(PIN_WAKE, LOW);  
+}
+
+
+////////////////////////
+// SAMPLING FUNCTIONS //
+////////////////////////
+
+// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
+void samplingCallback() {
+        // Read from the ADC and store the sample data
+        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
+        sampleCounter++;
+        // Set complex FFT coefficients to zero.        
+        samples[sampleCounter] = 0.0;
+        sampleCounter ++;
+        if (sampleCounter >= FFT_SIZE * 2) samplingTimer.end();        
+}
+
+/**
+ * [samplingBegin description]
+ */
+void samplingBegin() {
+        // Reset sample buffer position and start callback at defined sampling rate.
+        sampleCounter = 0;
+        // Start the interval timer with a period inverse to the sampling rate. Scale by 1e6 because arg is in uSec
+        samplingTimer.begin(samplingCallback, 1000000 / SAMPLE_RATE);
+}
+
+/**
+ * Check if there are enough new samples to do the FFT.
+ * @return {[type]} boolean
+ */
+boolean samplingIsDone() {
+        return sampleCounter >= FFT_SIZE * 2;
+}
+
+/////////////////////////
+// SPECTRUM  FUNCTIONS //
+/////////////////////////
+
+// Note that the Radix4 FFT is optimized for FFTs with lengths a power of 4
+
+/**
+ * Take enough samples for FFT_SIZE, then perform a single FFT. Blocking Code. Meant to be called in-between sleep
+ * cycles to detect flow-on events.
+ * @return {[type]} [description]
+ */
+void fftOneShot(){
+        samplingBegin(); 
+        while(!samplingIsDone()); // :smiling_imp:
+        arm_cfft_radix4_instance_f32 fft_inst;
+        arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
+        arm_cfft_radix4_f32(&fft_inst, samples);
+        arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
+}
+
+// TODO: implement a function that does a specified number of FFTs in a row
+void fftContinuous(int iterations){
+    for(int i = 0; i < iterations; i++){
+        samplingBegin(); 
+        while(!samplingIsDone()); // :smiling_imp:
+        arm_cfft_radix4_instance_f32 fft_inst;
+        arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
+        arm_cfft_radix4_f32(&fft_inst, samples);
+        arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
+        // TODO: will need to do something with the values here, else it might be silly to do this.
+    }
+}
+
+/**
+ * Perform logic to detect flow events based on latest FFT data, configuration data.
+ * @return {[type]} [description]
+ */
+void flowCheck(){
+
+}
+
+// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
+void pollingCallback() {
+        // Read from the ADC and store the sample data
+        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
+        sampleCounter++;
+        // Set complex FFT coefficients to zero.        
+        samples[sampleCounter] = 0.0;
+        sampleCounter ++;
+        if (sampleCounter >= FFT_SIZE * 2) samplingTimer.end();        
+}
+
+/**
+ * [samplingBegin description]
+ */
+void pollingBegin() {
+        // Reset sample buffer position and start callback at defined sampling rate.
+        sampleCounter = 0;
+        // Start the interval timer with a period inverse to the sampling rate. Scale by 1e6 because arg is in uSec
+        samplingTimer.begin(samplingCallback, 1000000 / POLLING_RATE_HZ);
+}
+
+
+// Compute the average magnitude of a target frequency window vs. all other frequencies.
+void windowMean(float* magnitudes, int lowBin, int highBin, float* windowMean, float* otherMean) {
+        *windowMean = 0;
+        *otherMean = 0;
+        // Notice the first magnitude bin is skipped because it represents the average power of the signal.       
+        for (int i = 1; i < FFT_SIZE / 2; ++i) {
+                if (i >= lowBin && i <= highBin) {
+                        *windowMean += magnitudes[i];
+                }
+                else {
+                        *otherMean += magnitudes[i];
+                }
+        }
+        *windowMean /= (highBin - lowBin) + 1;
+        *otherMean /= (FFT_SIZE / 2 - (highBin - lowBin));
+}
+
+// Convert a frequency to the appropriate FFT bin it will fall within.
+int frequencyToBin(float frequency) {
+        float binFrequency = float(SAMPLE_RATE) / float(FFT_SIZE);
+        return int(frequency / binFrequency);
+}
+
+// TODO: repurpose this function
+void spectrumSetup() {
+        // Set the frequency window values by evenly dividing the possible frequency
+        // spectrum across the number of characteristic frequencies.
+        float windowSize = (SAMPLE_RATE / 2.0) / float(CHARACTERISTIC_FREQUENCIES);
+        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES + 1; ++i) {
+                frequencyWindow[i] = i * windowSize;
+        }
+        // Evenly spread hues across all pixels.
+        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES; ++i) {
+                // TODO: load these into an array that we'll use
+                // hues[i] = 360.0 * (float(i) / float(LIMIT - 1));
+        }
+}
+
+/**
+ * This function is used to iterate over characteristic frequencies for signal of interest, 
+ * and log their amplitudes.
+ * @return {[type]} [description]
+ */
+void spectrumLoop() {
+        float intensity, otherMean;
+        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES; ++i) {
+                windowMean(magnitudes,
+                           frequencyToBin(frequencyWindow[i]),
+                           frequencyToBin(frequencyWindow[i + 1]),
+                           &intensity,
+                           &otherMean);
+                // Convert intensity to decibels.
+                intensity = 20.0 * log10(intensity);
+                // Scale the intensity and clamp between 0 and 1.0.
+                intensity -= SPECTRUM_MIN_DB;
+                //Saturate intensity at 0, i.e. restrict to positive intensity
+                intensity = intensity < 0.0 ? 0.0 : intensity;  
+                intensity /= (SPECTRUM_MAX_DB - SPECTRUM_MIN_DB);
+                intensity = intensity > 1.0 ? 1.0 : intensity;
+
+        }
+        //pixels.show();
 }
 
 
@@ -279,132 +456,6 @@ void parseCommand(char* command) {
 
 }
 
-////////////////////////
-// SAMPLING FUNCTIONS //
-////////////////////////
-
-// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
-void samplingCallback() {
-        // Read from the ADC and store the sample data
-        samples[sampleCounter] = (float32_t)analogRead(AUDIO_INPUT_PIN);
-        sampleCounter++;
-        // Set complex FFT coefficients to zero.        
-        samples[sampleCounter] = 0.0;
-        sampleCounter ++;
-        if (sampleCounter >= FFT_SIZE * 2) samplingTimer.end();        
-}
-
-/**
- * [samplingBegin description]
- */
-void samplingBegin() {
-        // Reset sample buffer position and start callback at defined sampling rate.
-        sampleCounter = 0;
-        // Start the interval timer with a period inverse to the sampling rate. Scale by 1e6 because arg is in uSec
-        samplingTimer.begin(samplingCallback, 1000000 / SAMPLE_RATE);
-}
-
-/**
- * Check if there are enough new samples to do the FFT.
- * @return {[type]} boolean
- */
-boolean samplingIsDone() {
-        return sampleCounter >= FFT_SIZE * 2;
-}
-
-/////////////////////////
-// SPECTRUM  FUNCTIONS //
-/////////////////////////
-
-/**
- * Take enough samples for FFT_SIZE, then perform a single FFT. Blocking Code. Meant to be called in-between sleep
- * cycles to detect flow-on events.
- * @return {[type]} [description]
- */
-void fftOneShot(){
-        samplingBegin(); 
-        while(!samplingIsDone()); // :smiling_imp:
-        arm_cfft_radix4_instance_f32 fft_inst;
-        arm_cfft_radix4_init_f32(&fft_inst, FFT_SIZE, 0, 1);
-        arm_cfft_radix4_f32(&fft_inst, samples);
-        arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
-}
-// TODO: implement a function that does a specified number of FFTs in a row
-void fftContinuous(){
-
-}
-/**
- * Perform logic to detect flow events based on latest FFT data, configuration data.
- * @return {[type]} [description]
- */
-void flowCheck(){
-
-}
-
-
-// Compute the average magnitude of a target frequency window vs. all other frequencies.
-void windowMean(float* magnitudes, int lowBin, int highBin, float* windowMean, float* otherMean) {
-        *windowMean = 0;
-        *otherMean = 0;
-        // Notice the first magnitude bin is skipped because it represents the average power of the signal.       
-        for (int i = 1; i < FFT_SIZE / 2; ++i) {
-                if (i >= lowBin && i <= highBin) {
-                        *windowMean += magnitudes[i];
-                }
-                else {
-                        *otherMean += magnitudes[i];
-                }
-        }
-        *windowMean /= (highBin - lowBin) + 1;
-        *otherMean /= (FFT_SIZE / 2 - (highBin - lowBin));
-}
-
-// Convert a frequency to the appropriate FFT bin it will fall within.
-int frequencyToBin(float frequency) {
-        float binFrequency = float(SAMPLE_RATE) / float(FFT_SIZE);
-        return int(frequency / binFrequency);
-}
-
-// TODO: repurpose this function
-void spectrumSetup() {
-        // Set the frequency window values by evenly dividing the possible frequency
-        // spectrum across the number of characteristic frequencies.
-        float windowSize = (SAMPLE_RATE / 2.0) / float(CHARACTERISTIC_FREQUENCIES);
-        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES + 1; ++i) {
-                frequencyWindow[i] = i * windowSize;
-        }
-        // Evenly spread hues across all pixels.
-        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES; ++i) {
-                // TODO: load these into an array that we'll use
-                // hues[i] = 360.0 * (float(i) / float(LIMIT - 1));
-        }
-}
-
-/**
- * This function is used to iterate over characteristic frequencies for signal of interest, 
- * and log their amplitudes.
- * @return {[type]} [description]
- */
-void spectrumLoop() {
-        float intensity, otherMean;
-        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES; ++i) {
-                windowMean(magnitudes,
-                           frequencyToBin(frequencyWindow[i]),
-                           frequencyToBin(frequencyWindow[i + 1]),
-                           &intensity,
-                           &otherMean);
-                // Convert intensity to decibels.
-                intensity = 20.0 * log10(intensity);
-                // Scale the intensity and clamp between 0 and 1.0.
-                intensity -= SPECTRUM_MIN_DB;
-                //Saturate intensity at 0, i.e. restrict to positive intensity
-                intensity = intensity < 0.0 ? 0.0 : intensity;  
-                intensity /= (SPECTRUM_MAX_DB - SPECTRUM_MIN_DB);
-                intensity = intensity > 1.0 ? 1.0 : intensity;
-
-        }
-        //pixels.show();
-}
 
 
 

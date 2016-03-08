@@ -2,7 +2,7 @@
 * @Author: Ryan A. Rodriguez
 * @Date:   2016-03-07 15:48:56
 * @Last Modified by:   Ryan A. Rodriguez
-* @Last Modified time: 2016-03-08 02:44:45
+* @Last Modified time: 2016-03-08 02:59:25
 */
 
 /**************************************************************************
@@ -37,51 +37,7 @@ void initial(teensyFSM *self, Event const *e)
     _FsmTran_((Fsm *)self, &teensyFSM_default);
 }
 
-// dont' really need a default state..
-void default(teensyFSM *self, Event const *e)
-{
-
-    if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
-        e->transition = false;
-    }
-
-    switch (e->signal)
-    {
-
-        case INTERVAL_TIMER_EXPIRED:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &polling);
-            break;
-
-        case FLOW_DETECTED:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sampling);
-            break;
-
-        case NO_FLOW_DETECTED:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sleeping);
-            break;
-
-        case DONE_ESTIMATING:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sleeping);
-            break;
-
-        case NO_EVENT:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sleeping);
-            break;   
-
-    }
-
-    if (e->transition == true) {
-        printf("EXECUTE TRANSITION!\n");
-        e->transition = false;
-    }    
-}
-
+// Dont really need a default state
 void default(teensyFSM *self, Event const *e){
 
     if (e->transition == true) {
@@ -483,7 +439,7 @@ void testing(teensyFSM *self, Event const *e){
         printf("EXECUTE TRANSITION!\n");
         e->transition = false;
     } 
-    
+
 }
 
 /**
@@ -498,7 +454,7 @@ void testing(teensyFSM *self, Event const *e){
 * @param e    [description]
 */
 
-char teensyFSMTransitionFunction(teensyFSM *self, teensyFSMEvent *e)
+char updateFSM(teensyFSM *self, teensyFSMEvent *e)
 {
     //After dereferencing, self is an hBridge object
     //
@@ -510,10 +466,10 @@ char teensyFSMTransitionFunction(teensyFSM *self, teensyFSMEvent *e)
 
     //First, get the event pointed to by teensyFSM event
     //Next, get the signal pointed to by the event in teensyFSMEvent
-    void *    funptr = (void*) self-> super_.state__;
+    void *    funptr = (void*) self->super_.state__;
     //void    *funptr = self->super_.state__;
 
-    if(funptr == &teensyFSM_default){
+    if(funptr == &default){
         switch (e->code)                  //This switch uses the data attribute 'code' of the teensyFSM Event
         {
             //case '.' : return -1;          // terminate the test
@@ -523,7 +479,7 @@ char teensyFSMTransitionFunction(teensyFSM *self, teensyFSMEvent *e)
 
             default : e->super_.signal = NO_EVENT; break;
         }
-    }
+    }                     
 
     else
         ;

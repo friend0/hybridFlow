@@ -74,7 +74,7 @@ void teensyFSMCtor(teensyFSM *self);
 * @param self self reference to teensyFSM
 * @param e    event
 */
-void teensyFSM_initial(teensyFSM *self, Event const *e);
+void initial(teensyFSM *self, Event const *e);
 
 /**
 * Implements the default transition
@@ -99,6 +99,6 @@ void transmitting(teensyFSM *self, Event const *e);
 
 void testing(teensyFSM *self, Event const *e);
 
-char transitionFunction(teensyFSM *self, teensyFSMEvent *e);
+char updateFSM(teensyFSM *self, teensyFSMEvent *e);
 
 #endif
