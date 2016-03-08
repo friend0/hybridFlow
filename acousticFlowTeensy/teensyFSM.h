@@ -5,9 +5,43 @@
 //////////////////////////////////////////
 // Declaration of FSM and Event objects //
 //////////////////////////////////////////
+#include "fsm.h"
+
+/* signals used by the teensyFSM FSM */
+enum
+{
+    INTERVAL_TIMER_EXPIRED,
+    FLOW_DETECTED, 
+    NO_FLOW_DETECTED,
+    DONE_ESTIMATING,
+    NO_EVENT,   //qDot = 0
+};
 
 typedef struct teensyFSM teensyFSM;
 typedef struct teensyFSMEvent teensyFSMEvent;
+
+/**************************************************************************
+teensyFSM FSM - Public Type Definitions for teensyFSM FSM and teensyFSM Events
+***************************************************************************/
+/**
+* @brief 'type naming' of the FSM object
+*
+* The 'teensyFSM' struct is a container for the FSM base class.
+* Other attributes of the class are included. Class methods are
+* implemented following this.
+*/
+
+struct teensyFSM
+{
+    Fsm super_; /* extend the Event class */
+};
+
+struct teensyFSMEvent
+{
+    Event super_; /* extend the Event class */
+    //Attributes
+    char code;
+};
 
 ////////////////////////////////////
 // Declaration of state functions //
@@ -29,6 +63,7 @@ typedef struct teensyFSMEvent teensyFSMEvent;
 * @param self
 */
 void teensyFSMCtor(teensyFSM *self);
+
 /**
 * @brief Entry state to be used for initialization and setup of the state machine.
 *
@@ -39,40 +74,31 @@ void teensyFSMCtor(teensyFSM *self);
 * @param self self reference to teensyFSM
 * @param e    event
 */
-void teensyFSM_initial(teensyFSM *self, Event *e);
+void teensyFSM_initial(teensyFSM *self, Event const *e);
 
 /**
 * Implements the default transition
 * @param self self reference to teensyFSM
 * @param e    event
 */
-void teensyFSM_default(teensyFSM *self, Event *e);
+void default(teensyFSM *self, Event const *e);
 
-/**
-* Implements the state handler for the case that the H-Bridge
-* is supplying +Vdc to the input of the RLC filter.
-* @param self self reference to teensyFSM
-* @param e    event
-*/
-void teensyFSM_VDC(teensyFSM *self, Event *e);
+void sleeping(teensyFSM *self, Event const *e);
 
-/**
-* Implements the state handler for the case that the H-Bridge
-* is supplying zero volts DC to the input of the RLC filter.
-* @param self self reference to teensyFSM
-* @param e    event
-*/
-void teensyFSM_Zero(teensyFSM *self, Event *e);
+void polling(teensyFSM *self, Event const *e);
 
-/**
-* Implements the state handler for the case that the H-Bridge
-* is supplying -Vdc to the input of the RLC filter.
-* @param self self reference to teensyFSM
-* @param e    event
-*/
-void teensyFSM_negVDC(teensyFSM *self, Event *e);
+void sampling(teensyFSM *self, Event const *e);
 
+void fft(teensyFSM *self, Event const *e);
 
-char teensyFSMTransitionFunction(teensyFSM self, teensyFSMEvent *e);
+void extracting(teensyFSM *self, Event const *e);
+
+void estimating(teensyFSM *self, Event const *e);
+
+void transmitting(teensyFSM *self, Event const *e);
+
+void testing(teensyFSM *self, Event const *e);
+
+char transitionFunction(teensyFSM *self, teensyFSMEvent *e);
 
 #endif

@@ -4,14 +4,8 @@
 
 #define ARM_MATH_CM4
 #include <arm_math.h>
-#include "fsm.h"
+#include "teensyFSM.h"
 
-// Processing States
-typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
-// current state-machine state
-procStates processingState = NOT_LISTENING;
-// Transmit Order
-char transmitOrder[] = {'R', 'A', 'T'};
 
 ////////////////////
 // Public Defines //
@@ -19,12 +13,33 @@ char transmitOrder[] = {'R', 'A', 'T'};
 
 #define ONE_MILLION 1000000
 #define HWSERIAL Serial3
-#define PIN_WAKE 9
 
-/////////////////////////////////////////////////////////////////////////////////////////
-// Shared Defines: Keep this block consistent with corresponding block in Simblee code //
-/////////////////////////////////////////////////////////////////////////////////////////
-#define MAX_DATA_SIZE 3
+typedef union floatBytes floatBytes;
+
+union floatBytes {
+   float asFloat;
+   byte asBytes[4];
+} data;
+
+//////////////////////////
+// State Machine Setups //
+//////////////////////////
+
+/**
+Definte UART packet structure: keep this consitent between Simblee and Teensy code 
+**/
+// Setup Bit-Bang UART FSM States
+typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
+// current UART state-machine state
+procStates processingState = NOT_LISTENING;
+// Transmit Order
+char transmitOrder[] = {'R', 'A', 'T'};
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// Shared UART payload definition: Keep this consistent with corresponding block in Simblee code //
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+static int const MAX_DATA_SIZE = 3;
 float payload[MAX_DATA_SIZE];
 
 ///////////////////////
@@ -33,6 +48,7 @@ float payload[MAX_DATA_SIZE];
 
 const int AUDIO_INPUT_PIN = 20;        // Input ADC pin for audio data.
 const int POWER_LED_PIN = 13;          // Output pin for power LED (pin 13 to use Teensy 3.0's onboard LED).
+const int  PIN_WAKE  = 9;
 
 ///////////////////////
 // FFT Configuration //
@@ -52,42 +68,47 @@ const int ANALOG_READ_AVERAGING = 1;  // Number of samples to average with each 
 const int MAX_CHARS = 65;              // Max size of the input command buffer
 
 // TODO: update logic and reasoning here when writing spectrum analysis functions
-#define LIMIT  1      // TODO: limit should be determined by number of frequencies in characteristic array of freqs
-float frequencyWindow[LIMIT + 1];
+static int const CHARACTERISTIC_FREQUENCIES = 1;      // TODO: CHARACTERISTIC_FREQUENCIES should be determined by number of frequencies in characteristic array of freqs
+                                       // 1 characteristic frequency is the defualt
+float frequencyWindow[CHARACTERISTIC_FREQUENCIES + 1];
 
+//////////////////////////////
+// State and Command Buffer //
+//////////////////////////////
 
-////////////////////
-// INTERNAL STATE //
-////////////////////
+float samples[FFT_SIZE * 2];        // Contains the latest set of time domain samples for the FFT
+float magnitudes[FFT_SIZE];         // Contains magnitudes, in dB, for each positive frequence bin up to Fnyq
 
-// Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NEO_PIXEL_COUNT, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
-IntervalTimer samplingTimer, flowCheckTimer;
-
-float samples[FFT_SIZE * 2];
-float magnitudes[FFT_SIZE];
-
-
-unsigned int currentValue;
-int sampleCounter = 0;
-int sampleCounterOneShot = 0;
-
-// TODO: remove this
-char commandBuffer[MAX_CHARS];
-
-////////////////////
-// External State //
-////////////////////
-
+// TODO: Change these to the values we actually want to send
+// Estimate Vector to be sento to Simblee, to be sent to Artik, to be sent to to Web App
 float rate;
 float avgRate;
 float timeStamp;
 
+int sampleCounter = 0;
+int sampleCounterOneShot = 0;
+
+char commandBuffer[MAX_CHARS];
+
+// Timers
+
+IntervalTimer samplingTimer;        // Use this time to set the sampling rate
+IntervalTimer flowCheckTimer;       // Use this to wake the Teensy and poll the sensor to do flow detection
 
 /////////////////////
 // SETUP FUNCTIONS //
 /////////////////////
 
+teensyFSM AquaStat;
+
 void setup() {
+
+        /** 
+        Setup FSM for the AquaStat 
+        **/        
+        teensyFSMCtor(&AquaStat);        
+        FsmInit((Fsm *)&AquaStat, 0);
+
 
         // Var Inits
         rate = 1.0;
@@ -113,7 +134,6 @@ void setup() {
         digitalWrite(PIN_WAKE, LOW);
         digitalWrite(POWER_LED_PIN, HIGH);
 
-        // TODO: what parts of the command buffer do we need to use the spectrogram over serial application?
         // Clear the input command buffer
         memset(commandBuffer, 0, sizeof(commandBuffer));        
 
@@ -309,7 +329,10 @@ void fftOneShot(){
         arm_cfft_radix4_f32(&fft_inst, samples);
         arm_cmplx_mag_f32(samples, magnitudes, FFT_SIZE);
 }
+// TODO: implement a function that does a specified number of FFTs in a row
+void fftContinuous(){
 
+}
 /**
  * Perform logic to detect flow events based on latest FFT data, configuration data.
  * @return {[type]} [description]
@@ -346,12 +369,12 @@ int frequencyToBin(float frequency) {
 void spectrumSetup() {
         // Set the frequency window values by evenly dividing the possible frequency
         // spectrum across the number of characteristic frequencies.
-        float windowSize = (SAMPLE_RATE / 2.0) / float(LIMIT);
-        for (int i = 0; i < LIMIT + 1; ++i) {
+        float windowSize = (SAMPLE_RATE / 2.0) / float(CHARACTERISTIC_FREQUENCIES);
+        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES + 1; ++i) {
                 frequencyWindow[i] = i * windowSize;
         }
         // Evenly spread hues across all pixels.
-        for (int i = 0; i < LIMIT; ++i) {
+        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES; ++i) {
                 // TODO: load these into an array that we'll use
                 // hues[i] = 360.0 * (float(i) / float(LIMIT - 1));
         }
@@ -364,7 +387,7 @@ void spectrumSetup() {
  */
 void spectrumLoop() {
         float intensity, otherMean;
-        for (int i = 0; i < LIMIT; ++i) {
+        for (int i = 0; i < CHARACTERISTIC_FREQUENCIES; ++i) {
                 windowMean(magnitudes,
                            frequencyToBin(frequencyWindow[i]),
                            frequencyToBin(frequencyWindow[i + 1]),
@@ -382,5 +405,6 @@ void spectrumLoop() {
         }
         //pixels.show();
 }
+
 
 
