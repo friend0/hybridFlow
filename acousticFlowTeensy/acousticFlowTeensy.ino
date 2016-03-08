@@ -4,14 +4,7 @@
 
 #define ARM_MATH_CM4
 #include <arm_math.h>
-// set 48kHz sampling rate
-#define CLOCK_TYPE                  (I2S_CLOCK_48K_INTERNAL)
-#include <Wire.h>
-// I2S digital audio 
-#include <i2s.h>
-// TODO: remove
-#include <Adafruit_NeoPixel.h>
-
+#include "fsm.h"
 
 // Processing States
 typedef enum { NOT_LISTENING, LISTENING, LOW_POWER_POLL, FAST_POLL, TRANSMIT } procStates;
@@ -26,7 +19,7 @@ char transmitOrder[] = {'R', 'A', 'T'};
 
 #define ONE_MILLION 1000000
 #define HWSERIAL Serial3
-#define PIN_WAKE 5
+#define PIN_WAKE 9
 
 /////////////////////////////////////////////////////////////////////////////////////////
 // Shared Defines: Keep this block consistent with corresponding block in Simblee code //
@@ -35,37 +28,44 @@ char transmitOrder[] = {'R', 'A', 'T'};
 float payload[MAX_DATA_SIZE];
 
 ///////////////////////
+// Pin Configuration //
+///////////////////////
+
+const int AUDIO_INPUT_PIN = 20;        // Input ADC pin for audio data.
+const int POWER_LED_PIN = 13;          // Output pin for power LED (pin 13 to use Teensy 3.0's onboard LED).
+
+///////////////////////
 // FFT Configuration //
 ///////////////////////
 
 int SAMPLE_RATE = 100000;              // Sample rate in hertz.
 float SPECTRUM_MIN_DB = 30.0;          // Audio intensity (in decibels) that maps to low LED brightness.
 float SPECTRUM_MAX_DB = 60.0;          // Audio intensity (in decibels) that maps to high LED brightness.
+
+// TODO: remove this
 int LEDS_ENABLED = 1;                  // Control if the LED's should display the spectrum or not.  1 is true, 0 is false.
+
 // Useful for turning the LED display on and off with commands from the serial port.
 const int FFT_SIZE = 1024;             // Size of the FFT.  Can be as most, 1024. Possibly 2048.
-const int AUDIO_INPUT_PIN = 14;        // Input ADC pin for audio data.
 const int ANALOG_READ_RESOLUTION = 10; // Bits of resolution for the ADC.
-const int ANALOG_READ_AVERAGING = 16;  // Number of samples to average with each ADC reading.
-const int POWER_LED_PIN = 13;          // Output pin for power LED (pin 13 to use Teensy 3.0's onboard LED).
+const int ANALOG_READ_AVERAGING = 1;  // Number of samples to average with each ADC reading.
 const int MAX_CHARS = 65;              // Max size of the input command buffer
 
-// @TODO remove refs to the neopixel
-const int NEO_PIXEL_PIN = 3;           // Output pin for neo pixels.
-const int NEO_PIXEL_COUNT = 4;         // Number of neo pixels.  You should be able to increase this without
+// TODO: update logic and reasoning here when writing spectrum analysis functions
+#define LIMIT  1      // TODO: limit should be determined by number of frequencies in characteristic array of freqs
+float frequencyWindow[LIMIT + 1];
+
 
 ////////////////////
 // INTERNAL STATE //
 ////////////////////
 
-Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NEO_PIXEL_COUNT, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
+// Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NEO_PIXEL_COUNT, NEO_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
 IntervalTimer samplingTimer, flowCheckTimer;
 
 float samples[FFT_SIZE * 2];
 float magnitudes[FFT_SIZE];
-// TODO: update this
-float frequencyWindow[NEO_PIXEL_COUNT + 1];
-float hues[NEO_PIXEL_COUNT];
+
 
 unsigned int currentValue;
 int sampleCounter = 0;
@@ -93,8 +93,9 @@ void setup() {
         rate = 1.0;
         avgRate = 2.0;
         timeStamp = 1.78;
-        
-        // UART
+
+              
+        // UART for Simblee Comm
         Serial.begin(38400);  
         HWSERIAL.begin(115200);
 
@@ -111,13 +112,10 @@ void setup() {
         pinMode(POWER_LED_PIN, OUTPUT);
         digitalWrite(PIN_WAKE, LOW);
         digitalWrite(POWER_LED_PIN, HIGH);
-        
+
+        // TODO: what parts of the command buffer do we need to use the spectrogram over serial application?
         // Clear the input command buffer
-        memset(commandBuffer, 0, sizeof(commandBuffer));
-        
-        // Uncomment this to activate I2S for MEMS mic on PCB
-        // I2SRx0.begin( CLOCK_TYPE, i2s_rx_callback );
-        // I2SRx0.start();
+        memset(commandBuffer, 0, sizeof(commandBuffer));        
 
         // Initialize spectrum display
         //spectrumSetup();
@@ -191,47 +189,6 @@ void sendPayload(float payload[], int payloadLength, char transmitOrder[]){
   digitalWrite(PIN_WAKE, LOW);  
 }
 
-///////////////////
-// I2S FUNCTIONS //
-///////////////////
-
-/**
- * Extract the 24bit ICS-43432 audio data from 32bit sample
- */
-void extractdata_inplace(int32_t  *pBuf) {
-  // set highest bit to zero, then bitshift right 7 times
-  // do not omit the first part (!)
-  pBuf[0] = (pBuf[0] & 0x7fffffff) >>7;
-}
-
-/**
- * Direct I2S Receive; we get callback to read 2 words from the FIFO.
- */
-void i2s_rx_callback( int32_t *pBuf )
-{
-  // perform the data extraction for both channel sides
-  extractdata_inplace(&pBuf[0]);
-  extractdata_inplace(&pBuf[1]);
-
-  // this does not buffer any data, but directly pushs it to USB
-  // use a fast (!) program to dump and analyze this.
-  // Minicom and Realterm are too slow.
-  for(int i=0; i<2; i++) {
-    /* 32 bit variant
-    bytes[0] = (pBuf[i] >> 24) & 0xFF;
-    bytes[1] = (pBuf[i] >> 16) & 0xFF;
-    bytes[2] = (pBuf[i] >> 8) & 0xFF;
-    bytes[3] = pBuf[i] & 0xFF;*/
-    
-    // 24 bit variant
-    bytes[0] = (pBuf[i] >> 16) & 0xFF;
-    bytes[1] = (pBuf[i] >> 8) & 0xFF;
-    bytes[2] = pBuf[i] & 0xFF;
-    
-    // send the data over USB
-    Serial.write(bytes,3);
-  }  
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // COMMAND PARSING FUNCTIONS
@@ -300,59 +257,7 @@ void parseCommand(char* command) {
                 spectrumSetup();
         }
 
-        // Turn off the LEDs if the state changed.
-        if (LEDS_ENABLED == 0) {
-                for (int i = 0; i < NEO_PIXEL_COUNT; ++i) {
-                        pixels.setPixelColor(i, 0);
-                }
-                pixels.show();
-        }
 }
-
-
-// TODO: Remove this
-// Convert from HSV values (in floating point 0 to 1.0) to RGB colors usable
-// by neo pixel functions.
-uint32_t pixelHSVtoRGBColor(float hue, float saturation, float value) {
-        // Implemented from algorithm at http://en.wikipedia.org/wiki/HSL_and_HSV#From_HSV
-        float chroma = value * saturation;
-        float h1 = float(hue) / 60.0;
-        float x = chroma * (1.0 - fabs(fmod(h1, 2.0) - 1.0));
-        float r = 0;
-        float g = 0;
-        float b = 0;
-        if (h1 < 1.0) {
-                r = chroma;
-                g = x;
-        }
-        else if (h1 < 2.0) {
-                r = x;
-                g = chroma;
-        }
-        else if (h1 < 3.0) {
-                g = chroma;
-                b = x;
-        }
-        else if (h1 < 4.0) {
-                g = x;
-                b = chroma;
-        }
-        else if (h1 < 5.0) {
-                r = x;
-                b = chroma;
-        }
-        else // h1 <= 6.0
-        {
-                r = chroma;
-                b = x;
-        }
-        float m = value - chroma;
-        r += m;
-        g += m;
-        b += m;
-        return pixels.Color(int(255 * r), int(255 * g), int(255 * b));
-}
-
 
 ////////////////////////
 // SAMPLING FUNCTIONS //
@@ -440,22 +345,26 @@ int frequencyToBin(float frequency) {
 // TODO: repurpose this function
 void spectrumSetup() {
         // Set the frequency window values by evenly dividing the possible frequency
-        // spectrum across the number of neo pixels.
-        float windowSize = (SAMPLE_RATE / 2.0) / float(NEO_PIXEL_COUNT);
-        for (int i = 0; i < NEO_PIXEL_COUNT + 1; ++i) {
+        // spectrum across the number of characteristic frequencies.
+        float windowSize = (SAMPLE_RATE / 2.0) / float(LIMIT);
+        for (int i = 0; i < LIMIT + 1; ++i) {
                 frequencyWindow[i] = i * windowSize;
         }
         // Evenly spread hues across all pixels.
-        for (int i = 0; i < NEO_PIXEL_COUNT; ++i) {
-                hues[i] = 360.0 * (float(i) / float(NEO_PIXEL_COUNT - 1));
+        for (int i = 0; i < LIMIT; ++i) {
+                // TODO: load these into an array that we'll use
+                // hues[i] = 360.0 * (float(i) / float(LIMIT - 1));
         }
 }
 
+/**
+ * This function is used to iterate over characteristic frequencies for signal of interest, 
+ * and log their amplitudes.
+ * @return {[type]} [description]
+ */
 void spectrumLoop() {
-        // Update each LED based on the intensity of the audio
-        // in the associated frequency window.
         float intensity, otherMean;
-        for (int i = 0; i < NEO_PIXEL_COUNT; ++i) {
+        for (int i = 0; i < LIMIT; ++i) {
                 windowMean(magnitudes,
                            frequencyToBin(frequencyWindow[i]),
                            frequencyToBin(frequencyWindow[i + 1]),
@@ -471,7 +380,7 @@ void spectrumLoop() {
                 intensity = intensity > 1.0 ? 1.0 : intensity;
 
         }
-        pixels.show();
+        //pixels.show();
 }
 
 
