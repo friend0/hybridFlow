@@ -132,7 +132,6 @@ void handlePreviousState (){
         case RATE_SIG:
                 shiftCount = 0;
                 rate = 0;
-                //Serial.println (currentValue);
                 nextState = RATE_BUFF;
                 break;
         case RATE_BUFF:        

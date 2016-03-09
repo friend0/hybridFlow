@@ -1,3 +1,4 @@
+
 /////////////////////////////////////////////
 // Acoustic Flow Sensing on the Teensy 3.2 //
 /////////////////////////////////////////////
@@ -6,6 +7,8 @@
 #include <arm_math.h>
 #include "teensyFSM.h"
 #include <TimerOne.h>
+// Note that with teensyduino 1.27 you'll need to update Snooze from it's developers git to supress some redefinition warnings.
+#include <Snooze.h>
 
 ////////////////////
 // Public Defines //
@@ -15,8 +18,8 @@ typedef union floatBytes floatBytes;
 
 union floatBytes {
         float asFloat;
-        byte asBytes[4];
-} data;
+        byte asBytes[sizeof(float)];
+};
 
 #define ONE_MILLION 1000000
 #define HWSERIAL Serial3
@@ -96,7 +99,7 @@ char commandBuffer[MAX_CHARS];
 // FSM //
 /////////
 
-teensyFSM AquaStat;
+Fsm AquaStat;
 teensyFSMEvent currentEvent;
 teensyFSMEvent lastEvent;
 
@@ -107,6 +110,7 @@ teensyFSMEvent lastEvent;
 //TODO: may need one more timer to keep track of water flow from start to finish, i.e. how long water has been running.
 IntervalTimer samplingTimer;        // Use this time to set the sampling rate
 IntervalTimer flowCheckTimer;       // Use this to wake the Teensy and poll the sensor to do flow detection
+SnoozeBlock config;
 
 /////////////////////
 // SETUP FUNCTIONS //
@@ -115,22 +119,26 @@ IntervalTimer flowCheckTimer;       // Use this to wake the Teensy and poll the 
 
 void setup() {
 
+        // UART for Simblee Comm
+        Serial.begin(38400);
+        HWSERIAL.begin(115200);
+        
         /**
-        Setup FSM for the AquaStat
+        Setup and Initialize the AquaStat FSM
         **/
         teensyFSMCtor(&AquaStat);
         FsmInit((Fsm *)&AquaStat, 0);
 
-
+        // Snooze Timer
+        config.setTimer(5000);// milliseconds
+        
         // Var Inits
         rate = 1.0;
         avgRate = 2.0;
         timeStamp = 1.78;
 
 
-        // UART for Simblee Comm
-        Serial.begin(38400);
-        HWSERIAL.begin(115200);
+
 
         // Init test-data
         for (int i = 0; i < MAX_DATA_SIZE; i++) payload[i] = i;
@@ -152,8 +160,12 @@ void setup() {
         // Initialize spectrum display
         //spectrumSetup();
 
+        // Begin low-power polling
+        pollingBegin();
+
+        // TODO: should remove this, will only be called in polling from now on
         // Begin sampling audio
-        //samplingBegin();
+        // samplingBegin();
 
 }
 
@@ -162,21 +174,26 @@ void setup() {
 ////////////////
 
 void loop() {
+        // int who = Snooze.sleep( config );// return module that woke processor
+        //Serial.println(who);
+        
+        // TODO: uncomment for testing python to USB bridge
+        // Parse pending commands.
+        // parserLoop();
 
-//        // Parse pending commands.
-//        parserLoop();
-
-        char ack = 0;
-        initCommunication(MAX_DATA_SIZE);
-        float payload[3] = {rate, avgRate, timeStamp};
-        sendPayload(payload, MAX_DATA_SIZE, transmitOrder);
-
-        while (HWSERIAL.available ()) {
-                ack = HWSERIAL.read();
-                Serial.println((char) ack);
-        }
-
-        delay(1000);
+        // TODO: these need to be 
+        // Ping the Simblee with the number of data points we're going to send
+        // initCommunication(MAX_DATA_SIZE);
+        // sendPayload(payload, MAX_DATA_SIZE, transmitOrder);
+        // transmitting(payload, MAX_DATA_SIZE, transmitOrder);   
+        // char ack = 0;
+        // TODO: if we need the receive functionality, implement it in a function. Get rid of blocking, or offer a timeout.
+        // while (HWSERIAL.available ()) {
+        //        ack = HWSERIAL.read();
+        //        Serial.println((char) ack);
+        //}
+        
+        //delay(1000);
 }
 
 //////////////
@@ -193,7 +210,7 @@ void initCommunication(int payloadLength) {
 }
 
 void sendPayload(float payload[], int payloadLength, char transmitOrder[]) {
-
+        Serial.println("SENDING\n");
         for (int i = 0; i < payloadLength; i++) {
                 HWSERIAL.print(transmitOrder[i]);
                 for (int j = 0; j < 4; j++) {
@@ -201,6 +218,22 @@ void sendPayload(float payload[], int payloadLength, char transmitOrder[]) {
                 }
         }
         digitalWrite(PIN_WAKE, LOW);
+}
+
+// TODO: update this with something not so dumb
+void updatePayload(){
+        ;
+        //float payload[3] = {rate, avgRate, timeStamp};          
+}
+void transmitting(float payload[], int payloadLength, char transmitOrder[]){
+          updatePayload();            
+          initCommunication(payloadLength);
+          sendPayload(payload, payloadLength, transmitOrder); 
+          char ack = 0;
+        while (HWSERIAL.available ()) {
+                ack = HWSERIAL.read();
+                Serial.println((char) ack);
+        }          
 }
 
 //////////////////////////////////////
@@ -282,14 +315,24 @@ void pollingBegin() {
         // Reset sample buffer position and start callback at defined sampling rate.
         sampleCounter = 0;
         // Start the interval timer with a period inverse to the sampling rate. Scale by 1e6 because arg is in uSec
-        samplingTimer.begin(samplingCallback, 1000000 / POLLING_RATE_HZ);
+        flowCheckTimer.begin(pollingCallback, 1000000 / POLLING_RATE_HZ);
 }
 
-// TODO: use this function to write another function called 'fftOneShot' that takes enough samples, performs FFT and does flow check on result.
 void pollingCallback() {
-        fftOneShot();
-        flowCheck(&currentEvent);        
+        //fftOneShot();
+        //flowCheck(&currentEvent);   
+
+        transmitting(payload, MAX_DATA_SIZE, transmitOrder); 
+        // TODO: remove this line, just for testing             
+        currentEvent.super_.signal = NO_EVENT;
+        // Use these 3-4 lines to work with state comparisons - use this to print out state for debug
+        void (*funcPtr)(Fsm*, Event*) = AquaStat.state__;
+        if(funcPtr == &initial){
+          Serial.println("Default State");
+        }
+        
         if (currentEvent.super_.signal != lastEvent.super_.signal) {
+          Serial.println("Update FSM");
                 updateFSM(&AquaStat, &currentEvent);
                 lastEvent = currentEvent;
         }

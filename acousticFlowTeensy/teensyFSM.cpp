@@ -21,16 +21,15 @@
 Events
 ****************************************************************/
 
-
 /****************************************************************
 States
 ****************************************************************/
-void teensyFSMCtor(teensyFSM *self)
+void teensyFSMCtor(Fsm *self)
 {
-    _FsmCtor_(&self->super_, &initial);
+    _FsmCtor_(self, &initial);
 }
 
-void initial(teensyFSM *self, Event *e)
+void initial(Fsm *self, Event *e)
 {
     //We can use this initial state to do some setup in the beginning. We occupy this state for only one cycle, then transition into the 
     // rest of the machine. 
@@ -38,7 +37,7 @@ void initial(teensyFSM *self, Event *e)
 }
 
 // Dont really need a default state
-void defaultState(teensyFSM *self, Event *e){
+void defaultState(Fsm *self, Event *e){
 
     if (e->transition == true) {
         e->transition = false;
@@ -80,50 +79,7 @@ void defaultState(teensyFSM *self, Event *e){
 
 }
 
-void sleeping(teensyFSM *self, Event *e){
-
-
-    if (e->transition == true) {
-        e->transition = false;
-    }
-
-    switch (e->signal)
-    {
-
-        case INTERVAL_TIMER_EXPIRED:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &polling);
-            break;
-
-        case FLOW_DETECTED:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sampling);
-            break;
-
-        case NO_FLOW_DETECTED:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sleeping);
-            break;
-
-        case DONE_ESTIMATING:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sleeping);
-            break;
-
-        case NO_EVENT:
-            // Serial.println("defaultNOEVENT");
-            _FsmTran_((Fsm *)self, &sleeping);
-            break;   
-
-    }
-
-    if (e->transition == true) {
-        e->transition = false;
-    } 
-
-}
-
-void polling(teensyFSM *self, Event *e){
+void sleeping(Fsm *self, Event *e){
 
 
     if (e->transition == true) {
@@ -166,7 +122,7 @@ void polling(teensyFSM *self, Event *e){
 
 }
 
-void sampling(teensyFSM *self, Event *e){
+void polling(Fsm *self, Event *e){
 
 
     if (e->transition == true) {
@@ -209,7 +165,7 @@ void sampling(teensyFSM *self, Event *e){
 
 }
 
-void fft(teensyFSM *self, Event *e){
+void sampling(Fsm *self, Event *e){
 
 
     if (e->transition == true) {
@@ -252,7 +208,7 @@ void fft(teensyFSM *self, Event *e){
 
 }
 
-void extracting(teensyFSM *self, Event *e){
+void fft(Fsm *self, Event *e){
 
 
     if (e->transition == true) {
@@ -295,7 +251,7 @@ void extracting(teensyFSM *self, Event *e){
 
 }
 
-void estimating(teensyFSM *self, Event *e){
+void extracting(Fsm *self, Event *e){
 
 
     if (e->transition == true) {
@@ -338,7 +294,7 @@ void estimating(teensyFSM *self, Event *e){
 
 }
 
-void transmitting(teensyFSM *self, Event *e){
+void estimating(Fsm *self, Event *e){
 
 
     if (e->transition == true) {
@@ -381,7 +337,50 @@ void transmitting(teensyFSM *self, Event *e){
 
 }
 
-void testing(teensyFSM *self, Event *e){
+void transmitting(Fsm *self, Event *e){
+
+
+    if (e->transition == true) {
+        e->transition = false;
+    }
+
+    switch (e->signal)
+    {
+
+        case INTERVAL_TIMER_EXPIRED:
+            // Serial.println("defaultNOEVENT");
+            _FsmTran_((Fsm *)self, &polling);
+            break;
+
+        case FLOW_DETECTED:
+            // Serial.println("defaultNOEVENT");
+            _FsmTran_((Fsm *)self, &sampling);
+            break;
+
+        case NO_FLOW_DETECTED:
+            // Serial.println("defaultNOEVENT");
+            _FsmTran_((Fsm *)self, &sleeping);
+            break;
+
+        case DONE_ESTIMATING:
+            // Serial.println("defaultNOEVENT");
+            _FsmTran_((Fsm *)self, &sleeping);
+            break;
+
+        case NO_EVENT:
+            // Serial.println("defaultNOEVENT");
+            _FsmTran_((Fsm *)self, &sleeping);
+            break;   
+
+    }
+
+    if (e->transition == true) {
+        e->transition = false;
+    } 
+
+}
+
+void testing(Fsm *self, Event *e){
 
 
     if (e->transition == true) {
@@ -438,7 +437,7 @@ void testing(teensyFSM *self, Event *e){
 * @param e    [description]
 */
 
-char updateFSM(teensyFSM *self, teensyFSMEvent *e)
+char updateFSM(Fsm *self, teensyFSMEvent *e)
 {
     //After dereferencing, self is an hBridge object
     //
@@ -450,7 +449,7 @@ char updateFSM(teensyFSM *self, teensyFSMEvent *e)
 
     //First, get the event pointed to by teensyFSM event
     //Next, get the signal pointed to by the event in teensyFSMEvent
-    void *    funptr = (void*) self->super_.state__;
+    void *    funptr = (void*) self->state__;
     //void    *funptr = self->super_.state__;
 
     if(funptr == &defaultState){

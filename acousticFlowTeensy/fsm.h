@@ -25,7 +25,7 @@ typedef short Signal;
     Therefore, in the FSM struct itself, we use the member variable 'State'
     to hold the current state of the FSM. State translates to the 'function being pointed to'
  */
-typedef void (*State)(Fsm *, Event const *);
+typedef void (*State)(Fsm *, Event *);
 
 
 /** @brief Event base class

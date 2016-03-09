@@ -7,6 +7,7 @@
 //////////////////////////////////////////
 #include "fsm.h"
 
+
 /* signals used by the teensyFSM FSM */
 enum
 {
@@ -62,7 +63,7 @@ struct teensyFSMEvent
 *
 * @param self
 */
-void teensyFSMCtor(teensyFSM *self);
+void teensyFSMCtor(Fsm *self);
 
 /**
 * @brief Entry state to be used for initialization and setup of the state machine.
@@ -74,31 +75,31 @@ void teensyFSMCtor(teensyFSM *self);
 * @param self self reference to teensyFSM
 * @param e    event
 */
-void initial(teensyFSM *self, Event *e);
+void initial(Fsm *self, Event *e);
 
 /**
 * Implements the default transition
 * @param self self reference to teensyFSM
 * @param e    event
 */
-void defaultState(teensyFSM *self, Event *e);
+void defaultState(Fsm *self, Event *e);
 
-void sleeping(teensyFSM *self, Event *e);
+void sleeping(Fsm *self, Event *e);
 
-void polling(teensyFSM *self, Event *e);
+void polling(Fsm *self, Event *e);
 
-void sampling(teensyFSM *self, Event *e);
+void sampling(Fsm *self, Event *e);
 
-void fft(teensyFSM *self, Event *e);
+void fft(Fsm *self, Event *e);
 
-void extracting(teensyFSM *self, Event *e);
+void extracting(Fsm *self, Event *e);
 
-void estimating(teensyFSM *self, Event *e);
+void estimating(Fsm *self, Event *e);
 
-void transmitting(teensyFSM *self, Event *e);
+void transmitting(Fsm *self, Event *e);
 
-void testing(teensyFSM *self, Event *e);
+void testing(Fsm *self, Event *e);
 
-char updateFSM(teensyFSM *self, teensyFSMEvent *e);
+char updateFSM(Fsm *self, teensyFSMEvent *e);
 
 #endif
